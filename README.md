@@ -1,5 +1,3 @@
-# face-detection-flask
-Real-time face detection &amp; student tracking using OpenCV DNN, served as an MJPEG stream via Flask on Raspberry Pi 4
 # Face Detection & Student Tracking
 
 A real-time face detection and student tracking web app built with **Flask** and **OpenCV** on a **Raspberry Pi 4**. The camera feed is processed with an OpenCV DNN face detector and streamed live to the browser as an MJPEG video feed.
