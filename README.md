@@ -61,4 +61,4 @@ You'll see the live camera feed with face detection.
 
 ## Author
 
-Jey — Woosong University (Endicott College program)
+jeeluuve05 — Woosong University (Endicott College program)
