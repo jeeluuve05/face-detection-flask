@@ -1,0 +1,10 @@
+flask
+numpy
+opencv-python
+
+# Note: picamera2 is NOT installed via pip on Raspberry Pi.
+# Install it with the system package manager instead:
+#   sudo apt install -y python3-picamera2
+#
+# And create your venv with access to the system libcamera module:
+#   python3 -m venv --system-site-packages venv

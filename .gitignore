@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# Captured student face images (privacy — keep out of public repo)
+captures/
+
+# Auto-downloaded model weights (re-downloaded on first run)
+models/*.caffemodel
+models/*.prototxt
+
+# OS / editor
+.DS_Store
+.vscode/
