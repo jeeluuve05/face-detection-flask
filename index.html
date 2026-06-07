@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Face Detection &middot; Student Tracking</title>
+<style>
+  :root {
+    --bg: #0b0f17;
+    --panel: rgba(255, 255, 255, 0.04);
+    --border: rgba(255, 255, 255, 0.10);
+    --text: #e8edf5;
+    --muted: #8a93a6;
+    --accent: #21d07a;
+    --accent-dim: rgba(33, 208, 122, 0.15);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+  #net { position: fixed; inset: 0; z-index: 0; }
+  .wrap {
+    position: relative;
+    z-index: 1;
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 28px 20px 60px;
+  }
+  header { text-align: center; margin-bottom: 24px; }
+  header h1 { font-size: 1.6rem; letter-spacing: 0.5px; }
+  header p { color: var(--muted); margin-top: 6px; font-size: 0.9rem; }
+
+  .grid { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 18px;
+    backdrop-filter: blur(8px);
+  }
+
+  /* Video feed with corner brackets + scan line */
+  .feed { position: relative; border-radius: 10px; overflow: hidden; background: #000; aspect-ratio: 4 / 3; }
+  .feed img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .bracket { position: absolute; width: 26px; height: 26px; border: 2px solid var(--accent); }
+  .bracket.tl { top: 10px; left: 10px; border-right: 0; border-bottom: 0; }
+  .bracket.tr { top: 10px; right: 10px; border-left: 0; border-bottom: 0; }
+  .bracket.bl { bottom: 10px; left: 10px; border-right: 0; border-top: 0; }
+  .bracket.br { bottom: 10px; right: 10px; border-left: 0; border-top: 0; }
+  .scan {
+    position: absolute; left: 0; right: 0; height: 2px;
+    background: linear-gradient(90deg, transparent, var(--accent), transparent);
+    animation: scan 3.2s linear infinite; opacity: 0.6;
+  }
+  @keyframes scan { 0% { top: 0; } 100% { top: 100%; } }
+
+  .controls { display: flex; gap: 12px; margin-top: 16px; align-items: center; }
+  .key {
+    width: 44px; height: 44px; border-radius: 8px;
+    border: 1px solid var(--border); background: rgba(255,255,255,0.03);
+    display: grid; place-items: center; font-weight: 700; font-size: 1.1rem;
+    transition: all 0.15s ease;
+  }
+  .key.active { background: var(--accent); color: #04130b; transform: translateY(2px); }
+  .controls .hint { color: var(--muted); font-size: 0.85rem; }
+  .btn {
+    margin-left: auto; padding: 10px 18px; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--accent); background: var(--accent-dim); color: var(--accent);
+    font-weight: 600;
+  }
+
+  .stats { display: flex; flex-direction: column; gap: 14px; }
+  .stat { display: flex; justify-content: space-between; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  .stat:last-child { border-bottom: 0; }
+  .stat .label { color: var(--muted); font-size: 0.85rem; }
+  .stat .value { font-size: 1.5rem; font-weight: 700; transition: transform 0.2s ease; }
+  .stat .value.bump { transform: scale(1.25); color: var(--accent); }
+
+  .status-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #555; margin-right: 7px; }
+  .status-dot.live { background: var(--accent); box-shadow: 0 0 10px var(--accent); }
+
+  .log { margin-top: 20px; }
+  .log h3 { font-size: 0.85rem; color: var(--muted); margin-bottom: 8px; text-transform: uppercase; letter-spacing: 1px; }
+  .log ul { list-style: none; font-size: 0.82rem; color: var(--muted); max-height: 150px; overflow-y: auto; }
+  .log li { padding: 4px 0; border-bottom: 1px dashed var(--border); }
+</style>
+</head>
+<body>
+<canvas id="net"></canvas>
+
+<div class="wrap">
+  <header>
+    <h1>Face Detection &amp; Student Tracking</h1>
+    <p>OpenCV DNN &middot; Flask MJPEG stream &middot; Raspberry Pi 4</p>
+  </header>
+
+  <div class="grid">
+    <div class="card">
+      <div class="feed">
+        <img src="/video_feed" alt="live feed" />
+        <span class="bracket tl"></span>
+        <span class="bracket tr"></span>
+        <span class="bracket bl"></span>
+        <span class="bracket br"></span>
+        <span class="scan"></span>
+      </div>
+      <div class="controls">
+        <div class="key" id="keyD">D</div>
+        <div class="key" id="keyS">S</div>
+        <span class="hint">D = start &nbsp;&middot;&nbsp; S = stop</span>
+        <button class="btn" id="toggle" onclick="toggleStream()">Toggle</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="stats">
+        <div class="stat">
+          <span class="label"><span class="status-dot" id="dot"></span>Status</span>
+          <span class="value" id="statusText" style="font-size:1rem;">Paused</span>
+        </div>
+        <div class="stat">
+          <span class="label">Faces now</span>
+          <span class="value" id="faces">0</span>
+        </div>
+        <div class="stat">
+          <span class="label">Students saved</span>
+          <span class="value" id="saved">0</span>
+        </div>
+        <div class="stat">
+          <span class="label">Uptime</span>
+          <span class="value" id="uptime" style="font-size:1.1rem;">00:00:00</span>
+        </div>
+      </div>
+
+      <div class="log">
+        <h3>Activity</h3>
+        <ul id="logList"></ul>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  let isStreaming = false;
+
+  // ── Particle network background ──────────────────────────
+  const canvas = document.getElementById('net');
+  const ctx = canvas.getContext('2d');
+  let pts = [];
+  function resize() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    pts = Array.from({ length: 60 }, () => ({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      vx: (Math.random() - 0.5) * 0.4,
+      vy: (Math.random() - 0.5) * 0.4
+    }));
+  }
+  window.addEventListener('resize', resize);
+  resize();
+  function draw() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    for (const p of pts) {
+      p.x += p.vx; p.y += p.vy;
+      if (p.x < 0 || p.x > canvas.width) p.vx *= -1;
+      if (p.y < 0 || p.y > canvas.height) p.vy *= -1;
+    }
+    for (let i = 0; i < pts.length; i++) {
+      for (let j = i + 1; j < pts.length; j++) {
+        const dx = pts[i].x - pts[j].x, dy = pts[i].y - pts[j].y;
+        const d = Math.hypot(dx, dy);
+        if (d < 130) {
+          ctx.strokeStyle = `rgba(33,208,122,${0.12 * (1 - d / 130)})`;
+          ctx.beginPath();
+          ctx.moveTo(pts[i].x, pts[i].y);
+          ctx.lineTo(pts[j].x, pts[j].y);
+          ctx.stroke();
+        }
+      }
+      ctx.fillStyle = 'rgba(33,208,122,0.5)';
+      ctx.beginPath();
+      ctx.arc(pts[i].x, pts[i].y, 1.6, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    requestAnimationFrame(draw);
+  }
+  draw();
+
+  // ── UI helpers ───────────────────────────────────────────
+  function addLog(msg) {
+    const ul = document.getElementById('logList');
+    const li = document.createElement('li');
+    const t = new Date().toLocaleTimeString();
+    li.textContent = `[${t}] ${msg}`;
+    ul.prepend(li);
+    while (ul.children.length > 20) ul.removeChild(ul.lastChild);
+  }
+
+  let lastSaved = 0;
+  function bump(id) {
+    const el = document.getElementById(id);
+    el.classList.add('bump');
+    setTimeout(() => el.classList.remove('bump'), 200);
+  }
+
+  function setStreamingUI(on) {
+    isStreaming = on;
+    document.getElementById('dot').classList.toggle('live', on);
+    document.getElementById('statusText').textContent = on ? 'Live' : 'Paused';
+    if (on) addLog('Stream started'); else addLog('Stream stopped');
+  }
+
+  function flashKey(action) {
+    const keyEl = document.getElementById(action === 'start' ? 'keyD' : 'keyS');
+    keyEl.classList.add('active');
+    setTimeout(() => keyEl.classList.remove('active'), 400);
+  }
+
+  // ── Call Flask control endpoint ──────────────────────────
+  async function sendControl(action) {
+    await fetch(`/control/${action}`, { method: 'POST' });
+    flashKey(action);
+    setStreamingUI(action === 'start');
+  }
+
+  function toggleStream() {
+    sendControl(isStreaming ? 'stop' : 'start');
+  }
+
+  // ── Keyboard: D/d = start,  S/s = stop ──────────────────
+  document.addEventListener('keydown', e => {
+    const k = e.key.toLowerCase();
+    if (k === 'd' && !isStreaming) sendControl('start');
+    if (k === 's' && isStreaming)  sendControl('stop');
+  });
+
+  // ── Stats polling ────────────────────────────────────────
+  const fmt = s => {
+    const h   = String(Math.floor(s / 3600)).padStart(2, '0');
+    const m   = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+    const sec = String(s % 60).padStart(2, '0');
+    return `${h}:${m}:${sec}`;
+  };
+
+  async function poll() {
+    try {
+      const d = await (await fetch('/stats')).json();
+      document.getElementById('faces').textContent  = d.faces_now;
+      document.getElementById('saved').textContent  = d.students_saved;
+      document.getElementById('uptime').textContent = fmt(d.uptime);
+      if (d.students_saved > lastSaved) { bump('saved'); addLog(`Saved student #${d.students_saved}`); lastSaved = d.students_saved; }
+      // sync UI if server state changed
+      if (d.streaming !== isStreaming) setStreamingUI(d.streaming);
+    } catch {}
+  }
+
+  poll();
+  setInterval(poll, 2000);
+</script>
+</body>
+</html>
